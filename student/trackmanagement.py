@@ -109,9 +109,9 @@ class Trackmanagement:
                         print('Shouldnt be here')
                     track.score -= 1./params.window
 
-        # delete old tracks   (track.state == 'initialized' and track.score < 0.0) or
+        # delete old tracks   
         for track in self.track_list:
-            if  \
+            if (track.state == 'initialized' and track.score < 0.0) or \
             (track.state == 'tentative' and track.score <= 0.4) or \
             (track.state == 'confirmed' and track.score <= params.delete_threshold) or \
             (track.P[0,0] > params.max_P or track.P[1,1] > params.max_P):
