@@ -58,7 +58,7 @@ class Track:
                             [0.0e+00, 0.0e+00, 0.0e+00, 0.0e+00,          0.0e+00,          params.sigma_p66]])
         
         self.state = 'initialized'
-        self.score = 1. / params.window
+        self.score = 1.5 / params.window
                
         # other track attributes
         self.id = id
@@ -105,14 +105,15 @@ class Trackmanagement:
             # check visibility    
             if meas_list: # if not empty
                 if meas_list[0].sensor.in_fov(track.x):
-                    if track.id == 0:
-                        print('Shouldnt be here')
+
                     track.score -= 1./params.window
+                    if track.score < 0.0:
+                        track.score = 0.0
 
         # delete old tracks   
         for track in self.track_list:
-            if (track.state == 'initialized' and track.score < 0.0) or \
-            (track.state == 'tentative' and track.score <= 0.4) or \
+            if (track.state == 'tentative' and track.score < 0.17) or \
+            (track.state == 'initialized' and track.score < 0.17) or \
             (track.state == 'confirmed' and track.score <= params.delete_threshold) or \
             (track.P[0,0] > params.max_P or track.P[1,1] > params.max_P):
                 self.delete_track(track)   
@@ -139,10 +140,10 @@ class Trackmanagement:
     def handle_updated_track(self, track):   
         if track.id == 0:
             print('Was here')
-        track.score += 1./params.window
+        track.score += 1.5/params.window
         if track.score > 1.0:
             track.score = 1.0
-        if track.state == 'initialized' and track.score >= 0.3:
+        if track.state == 'initialized' and track.score >= 0.17:
             track.state = 'tentative'
         if track.state == 'tentative' and track.score >= params.confirmed_threshold:
             track.state = 'confirmed'
