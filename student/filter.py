@@ -29,56 +29,59 @@ class Filter:
         self.q = params.q # process noise variable for Kalman filter Q
 
     def F(self):
-        dt = self.dt
-        return np.matrix([[1, 0, 0, dt, 0,  0 ],
-                          [0, 1, 0, 0,  dt, 0 ],
-                          [0, 0, 1, 0,  0,  dt],
-                          [0, 0, 0, 1,  0,  0 ],
-                          [0, 0, 0, 0,  1,  0 ],
-                          [0, 0, 0, 0,  0,  1 ]])
+        F = np.eye((self.dim_state))
+        F = np.asmatrix(F)  # convert from array to matrix instance
+        F[0, 3] = self.dt
+        F[1, 4] = self.dt
+        F[2, 5] = self.dt
+        return F
         
 
     def Q(self):
-        q = self.q
-        dt = self.dt
-        q1 = ((dt**3)/3) * q 
-        q2 = ((dt**2)/2) * q 
-        q3 = dt * q    
-        return np.matrix([[q1, 0,  0,  q2, 0,  0 ],
-                          [0,  q1, 0,  0,  q2, 0 ],
-                          [0,  0,  q1, 0,  0,  q2],
-                          [q2, 0,  0,  q3, 0,  0 ],
-                          [0,  q2, 0,  0,  q3, 0 ],
-                          [0,  0,  q2, 0,  0,  q3]])
+        dt2 = self.dt ** 2
+        dt3 = self.dt ** 3
+        q_11 = dt3 * self.q / 3.0
+        q_13 = dt2 * self.q / 2.0
+        q_33 = self.dt * self.q
+        return np.matrix(
+            [
+                [q_11, 0.0, 0.0, q_13, 0.0, 0.0],
+                [0.0, q_11, 0.0, 0.0, q_13, 0.0],
+                [0.0, 0.0, q_11, 0.0, 0.0, q_13],
+                [q_13, 0.0, 0.0, q_33, 0.0, 0.0],
+                [0.0, q_13, 0.0, 0.0, q_33, 0.0],
+                [0.0, 0.0, q_13, 0.0, 0.0, q_33],
+            ]
+        )
         
 
     def predict(self, track):
-        F = self.F()
-        x = F * track.x # state prediction
-        P = F * track.P * F.transpose() + self.Q() # covariance prediction
-        track.set_x(x)
-        track.set_P(P)
+        x_ = self.F() * track.x
+        P_ = self.F() * track.P * self.F().T + self.Q()
+        track.set_x(x_)
+        track.set_P(P_)
         
 
     def update(self, track, meas):
-        x = track.x
-        P = track.P
-        H = meas.sensor.get_H(x) # measurement matrix
-        gamma = self.gamma(track, meas)
-        S = self.S(track, meas, H) # covariance of residual
-        K = P * H.transpose() * np.linalg.inv(S) # Kalman gain
-        x = x + K * gamma # state update
-        I = np.identity(self.dim_state)
-        P = (I - K * H) * P # covariance update
-        track.set_x(x)
-        track.set_P(P)
+        H = meas.sensor.get_H(track.x)  # measurement jacobina matrix
+        gamma = self.gamma(track, meas)  # residual vector
+        S = self.S(track, meas, H)  # residual covariance
+        I = np.asmatrix(np.eye((self.dim_state)))  # identity matrix
+        K = track.P * H.T * S.I  # Kalman gain
+        x = track.x + K * gamma  # state update
+        P = (I - K * H) * track.P  # covariance update
+        track.set_x(x)  # track state assignment
+        track.set_P(P)  # track covariance assignment
         track.update_attributes(meas)
     
     def gamma(self, track, meas):
-        x = track.x
-        H = meas.sensor.get_H(x) # measurement matrix
-        return meas.z - H * x # residual
+        # try:
+        H = meas.sensor.get_hx(track.x)
+        # except:
+        #     H = 0
+        gamma = meas.z - H
+        return gamma
         
 
     def S(self, track, meas, H):
-        return H * track.P * H.transpose() + meas.R # covariance of residual
+        return (H * track.P * H.T) + meas.R # covariance of residual

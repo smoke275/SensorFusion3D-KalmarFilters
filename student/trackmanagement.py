@@ -29,36 +29,38 @@ class Track:
         M_rot = meas.sensor.sens_to_veh[0:3, 0:3] # rotation matrix from sensor to vehicle coordinates
         
 
-        #         self.x = np.matrix([[49.53980697],
-        #                         [ 3.41006279],
-        #                         [ 0.91790581],
-        #                         [ 0.        ],
-        #                         [ 0.        ],
-        #                         [ 0.        ]])
-        #         self.P = np.matrix([[9.0e-02, 0.0e+00, 0.0e+00, 0.0e+00, 0.0e+00, 0.0e+00],
-        #                         [0.0e+00, 9.0e-02, 0.0e+00, 0.0e+00, 0.0e+00, 0.0e+00],
-        #                         [0.0e+00, 0.0e+00, 6.4e-03, 0.0e+00, 0.0e+00, 0.0e+00],
-        #                         [0.0e+00, 0.0e+00, 0.0e+00, 2.5e+03, 0.0e+00, 0.0e+00],
-        #                         [0.0e+00, 0.0e+00, 0.0e+00, 0.0e+00, 2.5e+03, 0.0e+00],
-        #                         [0.0e+00, 0.0e+00, 0.0e+00, 0.0e+00, 0.0e+00, 2.5e+01]])
-        #         self.state = 'confirmed'
-        #         self.score = 0
-        
-        z = np.ones((4, 1))
-        z[:meas.sensor.dim_meas] = meas.z
-
+        pos_sens = np.ones((4, 1))  # homogeneous coordinates
+        pos_sens[0:3] = meas.z[0:3]
+        pos_veh = meas.sensor.sens_to_veh * pos_sens
         self.x = np.zeros((6, 1))
-        self.x[:3] = (meas.sensor.sens_to_veh * z)[:3]     
+        self.x[0:3] = pos_veh[0:3]
+        P_pos = M_rot * meas.R * np.transpose(M_rot)
+        sigma_p44 = params.sigma_p44  # initial setting for estimation error covariance P entry for vx
+        sigma_p55 = params.sigma_p55  # initial setting for estimation error covariance P entry for vy
+        sigma_p66 = params.sigma_p66  # initial setting for estimation error covariance P entry for vz
+        P_vel = np.matrix([[sigma_p44 ** 2, 0, 0], [0, sigma_p55 ** 2, 0], [0, 0, sigma_p66 ** 2]])
+        # overall covariance initialization
+        self.P = np.zeros((6, 6))
+        self.P[0:3, 0:3] = P_pos
+        self.P[3:6, 3:6] = P_vel
+        # self.x = np.matrix(
+        #     [[49.53980697], [3.41006279], [0.91790581], [0.0], [0.0], [0.0]]
+        # )
+        # self.P = np.matrix(
+        #     [
+        #         [9.0e-02, 0.0e00, 0.0e00, 0.0e00, 0.0e00, 0.0e00],
+        #         [0.0e00, 9.0e-02, 0.0e00, 0.0e00, 0.0e00, 0.0e00],
+        #         [0.0e00, 0.0e00, 6.4e-03, 0.0e00, 0.0e00, 0.0e00],
+        #         [0.0e00, 0.0e00, 0.0e00, 2.5e03, 0.0e00, 0.0e00],
+        #         [0.0e00, 0.0e00, 0.0e00, 0.0e00, 2.5e03, 0.0e00],
+        #         [0.0e00, 0.0e00, 0.0e00, 0.0e00, 0.0e00, 2.5e01],
+        #     ]
+        # )
+        # self.state = "confirmed"
+        # self.score = 0
+        self.score = 1.0 / params.window
+        self.state = "initialized"
         
-        self.P = np.matrix([[9.0e-02, 0.0e+00, 0.0e+00, 0.0e+00,          0.0e+00,          0.0e+00],
-                            [0.0e+00, 9.0e-02, 0.0e+00, 0.0e+00,          0.0e+00,          0.0e+00],
-                            [0.0e+00, 0.0e+00, 6.4e-03, 0.0e+00,          0.0e+00,          0.0e+00],
-                            [0.0e+00, 0.0e+00, 0.0e+00, params.sigma_p44, 0.0e+00,          0.0e+00],
-                            [0.0e+00, 0.0e+00, 0.0e+00, 0.0e+00,          params.sigma_p55, 0.0e+00],
-                            [0.0e+00, 0.0e+00, 0.0e+00, 0.0e+00,          0.0e+00,          params.sigma_p66]])
-        
-        self.state = 'initialized'
-        self.score = 1.5 / params.window
                
         # other track attributes
         self.id = id
@@ -101,22 +103,23 @@ class Trackmanagement:
     def manage_tracks(self, unassigned_tracks, unassigned_meas, meas_list):  
         # decrease score for unassigned tracks
         for i in unassigned_tracks:
-            track = self.track_list[i]
-            # check visibility    
-            if meas_list: # if not empty
-                if meas_list[0].sensor.in_fov(track.x):
-
-                    track.score -= 1./params.window
-                    if track.score < 0.0:
-                        track.score = 0.0
-
-        # delete old tracks   
+            u = self.track_list[i]
+            if meas_list:  # if not empty
+                # check for visibility
+                if meas_list[0].sensor.in_fov(u.x):
+                    u.score -= 1.0 / params.window
+            # else:
+            #     u.score -= 1.0 / params.window
+            if u.score <= 0.0:
+                u.score = 0.0
+        # delete old tracks
         for track in self.track_list:
-            if (track.state == 'tentative' and track.score < 0.17) or \
-            (track.state == 'initialized' and track.score < 0.17) or \
-            (track.state == 'confirmed' and track.score <= params.delete_threshold) or \
-            (track.P[0,0] > params.max_P or track.P[1,1] > params.max_P):
-                self.delete_track(track)   
+            if (
+                (track.state in ["confirmed"] and track.score < params.delete_threshold)
+                or ((track.P[0, 0] > params.max_P or track.P[1, 1] > params.max_P))
+                or (track.score < 0.05)
+            ):
+                self.delete_track(track)
 
             
         # initialize new track with unassigned measurement
@@ -138,12 +141,9 @@ class Trackmanagement:
         self.track_list.remove(track)
         
     def handle_updated_track(self, track):   
-        if track.id == 0:
-            print('Was here')
-        track.score += 1.5/params.window
-        if track.score > 1.0:
-            track.score = 1.0
-        if track.state == 'initialized' and track.score >= 0.17:
-            track.state = 'tentative'
-        if track.state == 'tentative' and track.score >= params.confirmed_threshold:
-            track.state = 'confirmed'
+        track.score += 1.0 / params.window
+        track.score = min(1.0, track.score)
+        if track.score > params.confirmed_threshold:
+            track.state = "confirmed"
+        else:
+            track.state = "tentative"
